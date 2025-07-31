@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CycleOptima Server Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      .endpoint {
+        margin: 10px 0;
+        padding: 10px;
+        background: #f8f9fa;
+        border-left: 4px solid #007bff;
+        border-radius: 4px;
+      }
+      .endpoint h3 {
+        margin: 0 0 10px 0;
+        color: #007bff;
+      }
+      .endpoint a {
+        color: #28a745;
+        text-decoration: none;
+      }
+      .endpoint a:hover {
+        text-decoration: underline;
+      }
+      .test-buttons {
+        margin: 20px 0;
+      }
+      .btn {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        margin: 5px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .btn:hover {
+        background: #0056b3;
+      }
+      .response {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+        white-space: pre-wrap;
+        font-family: monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🚴 CycleOptima Express Server Test</h1>
+
+      <h2>Server Endpoints</h2>
+
+      <div class="endpoint">
+        <h3>Server Status</h3>
+        <a href="http://localhost:3000/" target="_blank"
+          >GET http://localhost:3000/</a
+        >
+      </div>
+
+      <div class="endpoint">
+        <h3>Health Check</h3>
+        <a href="http://localhost:3000/health" target="_blank"
+          >GET http://localhost:3000/health</a
+        >
+      </div>
+
+      <div class="endpoint">
+        <h3>API Documentation</h3>
+        <a href="http://localhost:3000/api" target="_blank"
+          >GET http://localhost:3000/api</a
+        >
+      </div>
+
+      <div class="endpoint">
+        <h3>ESP32 Status</h3>
+        <a href="http://localhost:3000/api/esp32/status" target="_blank"
+          >GET http://localhost:3000/api/esp32/status</a
+        >
+      </div>
+
+      <div class="endpoint">
+        <h3>Configuration</h3>
+        <a href="http://localhost:3000/api/config" target="_blank"
+          >GET http://localhost:3000/api/config</a
+        >
+      </div>
+
+      <div class="endpoint">
+        <h3>Input JSON</h3>
+        <a href="http://localhost:3000/api/input" target="_blank"
+          >GET http://localhost:3000/api/input</a
+        >
+      </div>
+
+      <div class="endpoint">
+        <h3>SPIFFS Files</h3>
+        <a href="http://localhost:3000/spiffs/" target="_blank"
+          >GET http://localhost:3000/spiffs/</a
+        >
+      </div>
+
+      <div class="test-buttons">
+        <h2>API Tests</h2>
+        <button class="btn" onclick="testGetEndpoint('/health')">
+          Test Health
+        </button>
+        <button class="btn" onclick="testGetEndpoint('/api/esp32/status')">
+          Test ESP32 Status
+        </button>
+        <button class="btn" onclick="testGetEndpoint('/api/config')">
+          Test Config
+        </button>
+        <button class="btn" onclick="testPostSensorData()">
+          Test Sensor Data POST
+        </button>
+        <button class="btn" onclick="testPostUpdate()">
+          Test ESP32 Update POST
+        </button>
+      </div>
+
+      <div id="response-container">
+        <h3>Response:</h3>
+        <div id="response" class="response">
+          Click a test button to see API responses here...
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const baseUrl = "http://localhost:3000";
+
+      async function testGetEndpoint(endpoint) {
+        try {
+          const response = await fetch(baseUrl + endpoint);
+          const data = await response.json();
+          displayResponse("GET " + endpoint, data, response.status);
+        } catch (error) {
+          displayResponse("GET " + endpoint, { error: error.message }, "ERROR");
+        }
+      }
+
+      async function testPostSensorData() {
+        const sensorData = {
+          temperature: 23.5,
+          humidity: 65.2,
+          pressure: 1013.25,
+          timestamp: new Date().toISOString(),
+        };
+
+        try {
+          const response = await fetch(baseUrl + "/api/esp32/sensor-data", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(sensorData),
+          });
+          const data = await response.json();
+          displayResponse(
+            "POST /api/esp32/sensor-data",
+            { request: sensorData, response: data },
+            response.status
+          );
+        } catch (error) {
+          displayResponse(
+            "POST /api/esp32/sensor-data",
+            { error: error.message },
+            "ERROR"
+          );
+        }
+      }
+
+      async function testPostUpdate() {
+        const updateData = {
+          firmware_version: "1.0.1",
+          status: "updating",
+          timestamp: new Date().toISOString(),
+        };
+
+        try {
+          const response = await fetch(baseUrl + "/api/esp32/update", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(updateData),
+          });
+          const data = await response.json();
+          displayResponse(
+            "POST /api/esp32/update",
+            { request: updateData, response: data },
+            response.status
+          );
+        } catch (error) {
+          displayResponse(
+            "POST /api/esp32/update",
+            { error: error.message },
+            "ERROR"
+          );
+        }
+      }
+
+      function displayResponse(endpoint, data, status) {
+        const responseDiv = document.getElementById("response");
+        const timestamp = new Date().toLocaleTimeString();
+        responseDiv.textContent = `[${timestamp}] ${endpoint} (Status: ${status})\n\n${JSON.stringify(
+          data,
+          null,
+          2
+        )}`;
+      }
+    </script>
+  </body>
+</html>
