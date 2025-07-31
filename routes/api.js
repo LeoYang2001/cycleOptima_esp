@@ -1,6 +1,8 @@
 const express = require("express");
 const path = require("path");
 const router = express.Router();
+const { SerialPort } = require("serialport");
+const { ReadlineParser } = require("@serialport/parser-readline");
 
 // ESP32 specific routes
 router.get("/esp32/status", (req, res) => {
@@ -156,6 +158,51 @@ router.get("/files/:filename", (req, res) => {
         filename: filename,
       });
     }
+  });
+});
+
+router.get("/monitor", (req, res) => {
+  const port = new SerialPort({
+    path: "COM9",
+    baudRate: 115200,
+    autoOpen: false,
+  });
+
+  const parser = port.pipe(new ReadlineParser({ delimiter: "\r\n" }));
+
+  let output = "";
+  let closed = false;
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+
+  // Handle port errors gracefully
+  port.on("error", (err) => {
+    if (!closed) {
+      closed = true;
+      res.status(500).send("Serial port error: " + err.message);
+    }
+  });
+
+  port.open((err) => {
+    if (err) {
+      closed = true;
+      return res.status(500).send("Failed to open serial port: " + err.message);
+    }
+    parser.on("data", (line) => {
+      output += line + "\n";
+      // Optionally, stream to client: res.write(line + "\n");
+    });
+
+    // Stop after 10 seconds or when client closes connection
+    const closePort = () => {
+      if (!closed) {
+        closed = true;
+        if (port.isOpen) port.close();
+        res.end(output);
+      }
+    };
+
+    setTimeout(closePort, 10000);
+    req.on("close", closePort);
   });
 });
 
