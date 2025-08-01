@@ -1,0 +1,18 @@
+[
+  {
+    "id": "phase_a",
+    "name": "Example Phase",
+    "color": "06B6D4",
+    "startTime": 0,
+    "components": [
+      {
+        "id": "1752779020217",
+        "label": "Quick Drain",
+        "start": 0,
+        "compId": "Drain Valve",
+        "duration": 5000,
+        "motorConfig": null
+      }
+    ]
+  }
+]
