@@ -18,7 +18,7 @@ router.get("/esp32/status", (req, res) => {
 router.post("/flash", (req, res) => {
   const { spawn } = require("child_process");
   const path = require("path");
-  const flash = spawn("cmd", ["/c", "idf.py -p COM9 flash monitor"], {
+  const flash = spawn("cmd", ["/c", "idf.py -p COM7 flash monitor"], {
     cwd: path.join(__dirname, ".."),
     shell: false,
   });
@@ -120,29 +120,57 @@ router.post("/data", (req, res) => {
 
 // File routes
 
-// Get input.json
-router.get("/input", (req, res) => {
-  res.sendFile(path.join(__dirname, "..", "spiffs", "input.json"));
-});
-
 // Update input.json
 router.put("/input", (req, res) => {
   const fs = require("fs");
   const inputPath = path.join(__dirname, "..", "spiffs", "input.json");
-  const newJson = req.body.phases;
-  if (!newJson || typeof newJson !== "object") {
-    return res.status(400).json({ error: "Invalid JSON body" });
+  
+  // Try to get data from req.body.phases first, then fallback to req.body
+  const newJson = req.body.phases || req.body;
+  
+  console.log("Full request body:", JSON.stringify(req.body, null, 2));
+  console.log("Updating input.json with:", JSON.stringify(newJson, null, 2));
+  console.log("Target file path:", inputPath);
+  
+  if (!newJson || !Array.isArray(newJson)) {
+    return res.status(400).json({ 
+      error: "Invalid JSON body - expected array of phases",
+      received: typeof newJson,
+      body: req.body
+    });
   }
+  
   fs.writeFile(inputPath, JSON.stringify(newJson, null, 2), (err) => {
     if (err) {
+      console.error("File write error:", err);
       return res
         .status(500)
         .json({ error: "Failed to write file", details: err.message });
     }
+    
+    // Force file system sync and verify write
+    fs.fsync(fs.openSync(inputPath, 'r'), (syncErr) => {
+      if (syncErr) {
+        console.warn("File sync warning:", syncErr);
+      }
+    });
+    
+    // Verify the file was written by reading it back
+    fs.readFile(inputPath, 'utf8', (readErr, data) => {
+      if (readErr) {
+        console.error("Verification read error:", readErr);
+      } else {
+        console.log("Successfully wrote to input.json - Verified file size:", data.length);
+      }
+    });
+    
+    console.log("Successfully wrote to input.json");
     res.json({
       status: "success",
       message: "input.json updated",
       data: newJson,
+      file_path: inputPath,
+      timestamp: new Date().toISOString()
     });
   });
 });
@@ -163,7 +191,7 @@ router.get("/files/:filename", (req, res) => {
 
 router.get("/monitor", (req, res) => {
   const port = new SerialPort({
-    path: "COM9",
+    path: "COM7",
     baudRate: 115200,
     autoOpen: false,
   });

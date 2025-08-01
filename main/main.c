@@ -44,13 +44,27 @@ gpio_num_t map_name_to_pin(const char* name) {
 
 
 typedef struct {
+    uint32_t    stepTime;         // Time for each step in milliseconds
+    const char* direction;        // "cw" (clockwise) or "ccw" (counter-clockwise)
+    uint32_t    pauseTime;        // Pause time between steps in milliseconds
+} MotorPattern;
+
+typedef struct {
+    MotorPattern* pattern;        // Array of motor patterns
+    int           pattern_count;  // Number of patterns in the array
+    uint32_t      repeatTimes;    // Number of times to repeat the pattern
+    const char*   runningStyle;   // "Single Direction", "Alternating", etc.
+} MotorConfig;
+
+typedef struct {
     const char* compId;
     gpio_num_t  pin;
     uint32_t    start;    // ms delay from phase start before running
     uint32_t    duration;         // how long (ms) to run this component
-    uint32_t    stepTime;         // used for motor styles
-    const char* runningStyle;     // "toggle" or "singleDir" (or future styles)
-    uint32_t    pauseTime;        // only used if runningStyle == "singleDir"
+    uint32_t    stepTime;         // used for motor styles (deprecated - use motorConfig)
+    const char* runningStyle;     // "toggle" or "singleDir" (deprecated - use motorConfig)
+    uint32_t    pauseTime;        // only used if runningStyle == "singleDir" (deprecated)
+    MotorConfig* motorConfig;     // NULL for non-motor components, or motor configuration
 } ComponentInput;
 
 typedef struct {
@@ -63,8 +77,30 @@ typedef struct {
 Phase* program_phases = NULL;
 int NUM_PHASES = 0;
 
+// Timer logger variables
+static uint32_t program_start_time = 0;
+static bool timer_logger_running = false;
+
 uint32_t get_millis() {
     return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
+
+uint32_t get_program_elapsed_ms() {
+    if (program_start_time == 0) return 0;
+    return get_millis() - program_start_time;
+}
+
+// Timer logger task - runs every 1000ms and prints elapsed time
+static void timer_logger_task(void* arg) {
+    while (timer_logger_running) {
+        uint32_t elapsed = get_program_elapsed_ms();
+        ESP_LOGI("TIMER", "Program elapsed time: %lu ms (%lu.%03lu seconds)",
+                 (unsigned long)elapsed,
+                 (unsigned long)(elapsed / 1000),
+                 (unsigned long)(elapsed % 1000));
+        vTaskDelay(pdMS_TO_TICKS(1000));  // Log every 1000ms
+    }
+    vTaskDelete(NULL);
 }
 
 typedef struct {
@@ -72,6 +108,7 @@ typedef struct {
     gpio_num_t  pin;
     uint32_t    start;
     uint32_t    duration;
+    MotorConfig* motorConfig;  // Add motor configuration to task args
 } ComponentTaskArg;
 
 
@@ -82,7 +119,68 @@ typedef struct {
 static void run_motor_task(const ComponentTaskArg* c) {
     ESP_LOGI("COMPONENT_TASK", "Running motor task for %s", c->compId);
 
-    // Motor control logic goes here
+    if (!c->motorConfig) {
+        ESP_LOGW("COMPONENT_TASK", "No motor config for %s, treating as regular component", c->compId);
+        return;
+    }
+
+    gpio_num_t motor_on_pin = c->pin;  // Motor ON/OFF pin
+    gpio_num_t motor_dir_pin = MOTOR_DIRECTION_PIN;  // Motor direction pin
+
+    // Turn motor ON
+    gpio_set_level(motor_on_pin, 0);  // Active LOW
+    ESP_LOGI("COMPONENT_TASK", "Motor %s started at %lu ms", c->compId, (unsigned long)get_millis());
+
+    uint32_t total_runtime = 0;
+    uint32_t target_duration = c->duration;
+
+    for (uint32_t repeat = 0; repeat < c->motorConfig->repeatTimes && total_runtime < target_duration; repeat++) {
+        ESP_LOGI("COMPONENT_TASK", "Motor %s - Repeat cycle %lu/%lu", 
+                 c->compId, (unsigned long)(repeat + 1), (unsigned long)c->motorConfig->repeatTimes);
+
+        for (int i = 0; i < c->motorConfig->pattern_count && total_runtime < target_duration; i++) {
+            MotorPattern* pattern = &c->motorConfig->pattern[i];
+            
+            // Set motor direction
+            bool clockwise = (strcmp(pattern->direction, "cw") == 0);
+            gpio_set_level(motor_dir_pin, clockwise ? 0 : 1);//testing
+            
+            ESP_LOGI("COMPONENT_TASK", "Motor %s - Step %d: %s for %lu ms", 
+                     c->compId, i + 1, pattern->direction, (unsigned long)pattern->stepTime);
+
+            // Run motor for stepTime
+            uint32_t step_duration = (pattern->stepTime + total_runtime > target_duration) ? 
+                                   (target_duration - total_runtime) : pattern->stepTime;
+            vTaskDelay(pdMS_TO_TICKS(step_duration));
+            total_runtime += step_duration;
+
+            if (total_runtime >= target_duration) break;
+
+            // Pause if specified and we haven't reached duration
+            if (pattern->pauseTime > 0) {
+                // Turn motor OFF during pause
+                gpio_set_level(motor_on_pin, 1);  // Active LOW, so 1 = OFF
+                ESP_LOGI("COMPONENT_TASK", "Motor %s - Pausing (motor OFF) for %lu ms", 
+                         c->compId, (unsigned long)pattern->pauseTime);
+                
+                uint32_t pause_duration = (pattern->pauseTime + total_runtime > target_duration) ? 
+                                        (target_duration - total_runtime) : pattern->pauseTime;
+                vTaskDelay(pdMS_TO_TICKS(pause_duration));
+                total_runtime += pause_duration;
+                
+                // Turn motor back ON for next step (if we haven't exceeded duration)
+                if (total_runtime < target_duration) {
+                    gpio_set_level(motor_on_pin, 0);  // Active LOW, so 0 = ON
+                    ESP_LOGI("COMPONENT_TASK", "Motor %s - Resuming (motor ON)", c->compId);
+                }
+            }
+        }
+    }
+
+    // Turn motor OFF
+    gpio_set_level(motor_on_pin, 1);  // Active LOW, so 1 = OFF
+    ESP_LOGI("COMPONENT_TASK", "Motor %s stopped at %lu ms (ran for %lu ms)", 
+             c->compId, (unsigned long)get_millis(), (unsigned long)total_runtime);
 }
 static void component_task(void* arg) {
     ComponentTaskArg* c = (ComponentTaskArg*)arg;
@@ -92,11 +190,11 @@ static void component_task(void* arg) {
         vTaskDelay(pdMS_TO_TICKS(c->start));
     }
 
-    // if (c->isMotor) {
-    //     // Delegate all motor logic to run_motor_task()
-    //     run_motor_task(c);
-    // }
-    else {
+    // Check if this is a motor component with motor configuration
+    if (c->motorConfig != NULL) {
+        // Delegate all motor logic to run_motor_task()
+        run_motor_task(c);
+    } else {
         // Non‐motor: simple ON for duration, then OFF
         gpio_set_level(c->pin, 0);  // ON
         ESP_LOGI("COMPONENT_TASK",
@@ -131,6 +229,7 @@ static void run_phase(const Phase* phase) {
             .pin            = comp->pin,
             .start  = comp->start,
             .duration       = comp->duration,
+            .motorConfig    = comp->motorConfig,  // Pass motor configuration
         };
 
         // Name each task after the component for easier debugging:
@@ -203,20 +302,49 @@ static bool load_json_config(const char* path) {
             dst->start = cJSON_GetObjectItem(compObj, "start")->valueint;
             dst->duration      = cJSON_GetObjectItem(compObj, "duration")->valueint;
 
+            // Parse motorConfig if present
+            cJSON* motorConfigObj = cJSON_GetObjectItem(compObj, "motorConfig");
+            if (motorConfigObj && !cJSON_IsNull(motorConfigObj)) {
+                dst->motorConfig = malloc(sizeof(MotorConfig));
+                
+                // Parse pattern array
+                cJSON* patternArray = cJSON_GetObjectItem(motorConfigObj, "pattern");
+                if (patternArray) {
+                    int pattern_count = cJSON_GetArraySize(patternArray);
+                    dst->motorConfig->pattern = malloc(pattern_count * sizeof(MotorPattern));
+                    dst->motorConfig->pattern_count = pattern_count;
+                    
+                    for (int k = 0; k < pattern_count; k++) {
+                        cJSON* patternObj = cJSON_GetArrayItem(patternArray, k);
+                        MotorPattern* pattern = &dst->motorConfig->pattern[k];
+                        
+                        pattern->stepTime = cJSON_GetObjectItem(patternObj, "stepTime")->valueint;
+                        pattern->direction = strdup(cJSON_GetObjectItem(patternObj, "direction")->valuestring);
+                        pattern->pauseTime = cJSON_GetObjectItem(patternObj, "pauseTime")->valueint;
+                    }
+                }
+                
+                // Parse repeatTimes
+                cJSON* repeatTimesObj = cJSON_GetObjectItem(motorConfigObj, "repeatTimes");
+                dst->motorConfig->repeatTimes = repeatTimesObj ? repeatTimesObj->valueint : 1;
+                
+                // Parse runningStyle
+                cJSON* runningStyleObj = cJSON_GetObjectItem(motorConfigObj, "runningStyle");
+                dst->motorConfig->runningStyle = runningStyleObj ? 
+                    strdup(runningStyleObj->valuestring) : strdup("Single Direction");
+                    
+                ESP_LOGI("CONFIG", "[MOTOR CONFIG] %s: %d patterns, repeat %u times, style: %s",
+                         name, dst->motorConfig->pattern_count, 
+                         (unsigned int)dst->motorConfig->repeatTimes,
+                         dst->motorConfig->runningStyle);
+            } else {
+                dst->motorConfig = NULL;  // No motor configuration
+            }
 
-            // cJSON* ifMotor = cJSON_GetObjectItem(compObj, "ifMotor");
-            // dst->isMotor = cJSON_IsTrue(ifMotor);
-
-            // New fields:
-            // cJSON* styleObj = cJSON_GetObjectItem(compObj, "runningStyle");
-            // if (styleObj && styleObj->valuestring) {
-            //     dst->runningStyle = strdup(styleObj->valuestring);
-            // } else {
-            //     dst->runningStyle = strdup("toggle"); // default
-            // }
-
-            // cJSON* pauseObj = cJSON_GetObjectItem(compObj, "pauseTime");
-            // dst->pauseTime = pauseObj ? pauseObj->valueint : 0;
+            // Legacy fields (keeping for backward compatibility)
+            dst->stepTime = 0;
+            dst->runningStyle = strdup("toggle");
+            dst->pauseTime = 0;
 
             // Compute this component’s end time relative to phase start:
             uint32_t finish_time = dst->start + dst->duration;
@@ -262,6 +390,23 @@ void app_main(void) {
     }
 
     // 7b) Run phases in order. We assume sorted by JSON order.
+    
+    // Start timer logger before first phase
+    program_start_time = get_millis();
+    timer_logger_running = true;
+    
+    ESP_LOGI("APP", "Starting program execution at t=%lu ms", (unsigned long)program_start_time);
+    
+    // Create timer logger task
+    xTaskCreate(
+        timer_logger_task,
+        "timer_logger",
+        2048,        // stack size
+        NULL,
+        tskIDLE_PRIORITY + 1,
+        NULL
+    );
+    
     uint32_t last_phase_start = 0;
     for (int i = 0; i < NUM_PHASES; i++) {
         Phase* p = &program_phases[i];
@@ -275,20 +420,24 @@ void app_main(void) {
         if (this_delay > 0) {
             vTaskDelay(pdMS_TO_TICKS(this_delay));
         }
-        ESP_LOGI("APP", "Starting phase \"%s\" at t=%lu ms (delay=%lu)",
-                 p->name, get_millis(), this_delay);
+        ESP_LOGI("APP", "Starting phase \"%s\" at t=%lu ms (program elapsed: %lu ms, delay=%lu)",
+                 p->name, (unsigned long)get_millis(), (unsigned long)get_program_elapsed_ms(), (unsigned long)this_delay);
 
         // Run the phase (spawn component tasks & wait until all finish)
         run_phase(p);
 
-        ESP_LOGI("APP", "Completed phase \"%s\" at t=%lu ms",
-                 p->name, get_millis());
+        ESP_LOGI("APP", "Completed phase \"%s\" at t=%lu ms (program elapsed: %lu ms)",
+                 p->name, (unsigned long)get_millis(), (unsigned long)get_program_elapsed_ms());
 
         // Update last_phase_start so the next phase’s delay is relative to this one
         last_phase_start = p->startTime;
     }
 
-    ESP_LOGI("APP", "All phases complete. Entering idle.");
+    // Stop timer logger
+    timer_logger_running = false;
+    vTaskDelay(pdMS_TO_TICKS(100)); // Give timer task time to exit
+
+    ESP_LOGI("APP", "All phases complete at program elapsed: %lu ms. Entering idle.", (unsigned long)get_program_elapsed_ms());
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));  // keep the app alive
     }

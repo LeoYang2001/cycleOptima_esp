@@ -1,16 +1,199 @@
 [
   {
-    "id": "phase_a",
-    "name": "Example Phase",
-    "color": "06B6D4",
-    "startTime": 0,
+    "id": "1753127207401",
+    "name": "Sensing",
+    "color": "4ADE80",
+    "startTime": 5000,
     "components": [
       {
-        "id": "1752779020217",
+        "id": "1753127219693",
+        "label": "Gentle Wash Motor",
+        "start": 0,
+        "compId": "Motor",
+        "duration": 22500,
+        "motorConfig": {
+          "pattern": [
+            {
+              "stepTime": 500,
+              "direction": "cw",
+              "pauseTime": 250
+            },
+            {
+              "stepTime": 500,
+              "direction": "ccw",
+              "pauseTime": 250
+            }
+          ],
+          "repeatTimes": 15,
+          "runningStyle": "Toggle Direction"
+        }
+      }
+    ]
+  },
+  {
+    "id": "phase_a",
+    "name": "Fill Phase",
+    "color": "06B6D4",
+    "startTime": 4900,
+    "components": [
+      {
+        "id": "1753127095511",
+        "label": "Gentle Wash Motor",
+        "start": 5000,
+        "compId": "Motor",
+        "duration": 90000,
+        "motorConfig": {
+          "pattern": [
+            {
+              "stepTime": 1000,
+              "direction": "cw",
+              "pauseTime": 5000
+            }
+          ],
+          "repeatTimes": 15,
+          "runningStyle": "Single Direction"
+        }
+      },
+      {
+        "id": "1753127144545",
+        "label": "Cold Water Fill",
+        "start": 0,
+        "compId": "Cold Valve",
+        "duration": 90000,
+        "motorConfig": null
+      },
+      {
+        "id": "1753127299329",
+        "label": "Standard Retractor Cycle",
+        "start": 0,
+        "compId": "Retractor",
+        "duration": 100000,
+        "motorConfig": null
+      }
+    ]
+  },
+  {
+    "id": "1753127356157",
+    "name": "agitation",
+    "color": "EF4444",
+    "startTime": 10000,
+    "components": [
+      {
+        "id": "1753127363056",
+        "label": "Gentle Wash Motor",
+        "start": 0,
+        "compId": "Motor",
+        "duration": 130000,
+        "motorConfig": {
+          "pattern": [
+            {
+              "stepTime": 300,
+              "direction": "cw",
+              "pauseTime": 1000
+            },
+            {
+              "stepTime": 300,
+              "direction": "ccw",
+              "pauseTime": 1000
+            }
+          ],
+          "repeatTimes": 50,
+          "runningStyle": "Toggle Direction"
+        }
+      },
+      {
+        "id": "1753127419875",
+        "label": "Gentle Wash Motor",
+        "start": 130000,
+        "compId": "Motor",
+        "duration": 30000,
+        "motorConfig": {
+          "pattern": [
+            {
+              "stepTime": 500,
+              "direction": "cw",
+              "pauseTime": 1000
+            },
+            {
+              "stepTime": 500,
+              "direction": "cw",
+              "pauseTime": 1000
+            },
+            {
+              "stepTime": 500,
+              "direction": "ccw",
+              "pauseTime": 1000
+            },
+            {
+              "stepTime": 500,
+              "direction": "ccw",
+              "pauseTime": 1000
+            }
+          ],
+          "repeatTimes": 5,
+          "runningStyle": "Custom Pattern"
+        }
+      }
+    ]
+  },
+  {
+    "id": "1753127545681",
+    "name": "Drain and spin",
+    "color": "6366F1",
+    "startTime": 5000,
+    "components": [
+      {
+        "id": "1753127554382",
         "label": "Quick Drain",
         "start": 0,
         "compId": "Drain Valve",
-        "duration": 5000,
+        "duration": 200000,
+        "motorConfig": null
+      },
+      {
+        "id": "1753127612369",
+        "label": "Gentle Wash Motor",
+        "start": 60000,
+        "compId": "Motor",
+        "duration": 60000,
+        "motorConfig": {
+          "pattern": [
+            {
+              "stepTime": 5000,
+              "direction": "cw",
+              "pauseTime": 1000
+            },
+            {
+              "stepTime": 3000,
+              "direction": "cw",
+              "pauseTime": 1000
+            },
+            {
+              "stepTime": 3000,
+              "direction": "cw",
+              "pauseTime": 1000
+            },
+            {
+              "stepTime": 2000,
+              "direction": "cw",
+              "pauseTime": 1000
+            },
+            {
+              "stepTime": 2000,
+              "direction": "cw",
+              "pauseTime": 1000
+            }
+          ],
+          "repeatTimes": 3,
+          "runningStyle": "Custom Pattern"
+        }
+      },
+      {
+        "id": "1753127765797",
+        "label": "Standard Retractor Cycle",
+        "start": 0,
+        "compId": "Retractor",
+        "duration": 200000,
         "motorConfig": null
       }
     ]
