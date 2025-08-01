@@ -46,17 +46,16 @@ gpio_num_t map_name_to_pin(const char* name) {
 typedef struct {
     const char* compId;
     gpio_num_t  pin;
-    uint32_t    compStartTime;    // ms delay from phase start before running
+    uint32_t    start;    // ms delay from phase start before running
     uint32_t    duration;         // how long (ms) to run this component
     uint32_t    stepTime;         // used for motor styles
     const char* runningStyle;     // "toggle" or "singleDir" (or future styles)
     uint32_t    pauseTime;        // only used if runningStyle == "singleDir"
-    bool        isMotor;          // true if this component is any kind of motor
 } ComponentInput;
 
 typedef struct {
-    const char*     phaseName;
-    uint32_t        phaseStartTime;   // ms delay from “0” (or from last phase) to start this phase
+    const char*     name;
+    uint32_t        startTime;   // ms delay from “0” (or from last phase) to start this phase
     ComponentInput* components;
     int             num_components;
 } Phase;
@@ -71,12 +70,8 @@ uint32_t get_millis() {
 typedef struct {
     const char* compId;
     gpio_num_t  pin;
-    uint32_t    compStartTime;
+    uint32_t    start;
     uint32_t    duration;
-    uint32_t    stepTime;
-    const char* runningStyle;
-    uint32_t    pauseTime;
-    bool        isMotor;
 } ComponentTaskArg;
 
 
@@ -85,98 +80,22 @@ typedef struct {
 // New function: all motor‐running logic goes here
 // --------------------------------------------------
 static void run_motor_task(const ComponentTaskArg* c) {
-    if (strcmp(c->runningStyle, "toggle") == 0) {
-        // ----- Toggle‐direction style -----
-        uint32_t start = get_millis();
-        bool direction_flag = false;
+    ESP_LOGI("COMPONENT_TASK", "Running motor task for %s", c->compId);
 
-        // Initialize motor:
-        gpio_set_level(MOTOR_DIRECTION_PIN, direction_flag);
-        gpio_set_level(MOTOR_ON_PIN, 0);   // ON
-        ESP_LOGI("COMPONENT_TASK",
-                 "Motor (toggle) %s START at %lu ms for %lu ms (step=%lu ms)",
-                 c->compId, (unsigned long)start, (unsigned long)c->duration, (unsigned long)c->stepTime);
-
-        while (true) {
-            uint32_t now = get_millis();
-            if (now - start >= c->duration) {
-                break;
-            }
-
-            // Wait stepTime before toggling
-            vTaskDelay(pdMS_TO_TICKS(c->stepTime));
-
-            // Pause motor for 1 s
-            gpio_set_level(MOTOR_ON_PIN, 1);
-            vTaskDelay(pdMS_TO_TICKS(1000));
-
-            // Flip direction and resume
-            direction_flag = !direction_flag;
-            gpio_set_level(MOTOR_DIRECTION_PIN, direction_flag);
-            gpio_set_level(MOTOR_ON_PIN, 0);
-            ESP_LOGI("COMPONENT_TASK",
-                     "Motor (toggle) %s toggled direction to %d at %lu ms",
-                     c->compId, direction_flag, (unsigned long)get_millis());
-        }
-
-        // End → turn OFF
-        gpio_set_level(MOTOR_ON_PIN, 1);
-        ESP_LOGI("COMPONENT_TASK", "Motor (toggle) %s FINISHED at %lu ms", c->compId, (unsigned long)get_millis());
-    }
-    else if (strcmp(c->runningStyle, "singleDir") == 0) {
-        // ----- Single‐direction style -----
-        uint32_t start = get_millis();
-
-        // Fix direction once at start
-        gpio_set_level(MOTOR_DIRECTION_PIN, true);
-        gpio_set_level(MOTOR_ON_PIN, 0);    // ON
-        ESP_LOGI("COMPONENT_TASK",
-                 "Motor (singleDir) %s START at %lu ms for %lu ms (step=%lu ms, pause=%lu ms)",
-                 c->compId, (unsigned long)start, (unsigned long)c->duration, (unsigned long)c->stepTime, (unsigned long)c->pauseTime);
-
-        while (true) {
-            uint32_t now     = get_millis();
-            uint32_t elapsed = now - start;
-            if (elapsed >= c->duration) {
-                break;
-            }
-
-            // Compute ON/OFF cycle
-            uint32_t cycle_len = c->stepTime + c->pauseTime;
-            uint32_t rel       = elapsed % cycle_len;
-            if (rel < c->stepTime) {
-                gpio_set_level(MOTOR_ON_PIN, 0);   // ON
-            } else {
-                gpio_set_level(MOTOR_ON_PIN, 1);   // Pause
-            }
-
-            // Short sleep to avoid busy‐looping
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-
-        // End → turn OFF
-        gpio_set_level(MOTOR_ON_PIN, 1);
-        ESP_LOGI("COMPONENT_TASK", "Motor (singleDir) %s FINISHED at %lu ms", c->compId, (unsigned long)get_millis());
-    }
-    else {
-        // ----- Unknown style -----
-        ESP_LOGW("COMPONENT_TASK",
-                 "Motor %s has unknown runningStyle \"%s\"",
-                 c->compId, c->runningStyle);
-    }
+    // Motor control logic goes here
 }
 static void component_task(void* arg) {
     ComponentTaskArg* c = (ComponentTaskArg*)arg;
 
     // 1) Wait until it’s time to start
-    if (c->compStartTime > 0) {
-        vTaskDelay(pdMS_TO_TICKS(c->compStartTime));
+    if (c->start > 0) {
+        vTaskDelay(pdMS_TO_TICKS(c->start));
     }
 
-    if (c->isMotor) {
-        // Delegate all motor logic to run_motor_task()
-        run_motor_task(c);
-    }
+    // if (c->isMotor) {
+    //     // Delegate all motor logic to run_motor_task()
+    //     run_motor_task(c);
+    // }
     else {
         // Non‐motor: simple ON for duration, then OFF
         gpio_set_level(c->pin, 0);  // ON
@@ -200,7 +119,7 @@ static void run_phase(const Phase* phase) {
     uint32_t phase_duration = 0;
     for (int i = 0; i < phase->num_components; i++) {
         const ComponentInput* comp = &phase->components[i];
-        uint32_t finish_time = comp->compStartTime + comp->duration;
+        uint32_t finish_time = comp->start + comp->duration;
         if (finish_time > phase_duration) {
             phase_duration = finish_time;
         }
@@ -210,12 +129,8 @@ static void run_phase(const Phase* phase) {
         *arg = (ComponentTaskArg){
             .compId         = comp->compId,
             .pin            = comp->pin,
-            .compStartTime  = comp->compStartTime,
+            .start  = comp->start,
             .duration       = comp->duration,
-            .stepTime       = comp->stepTime,
-            .runningStyle   = comp->runningStyle,
-            .pauseTime      = comp->pauseTime,
-            .isMotor        = comp->isMotor
         };
 
         // Name each task after the component for easier debugging:
@@ -267,15 +182,15 @@ static bool load_json_config(const char* path) {
 
     for (int i = 0; i < NUM_PHASES; i++) {
         cJSON* phaseObj = cJSON_GetArrayItem(root, i);
-        program_phases[i].phaseName = strdup(cJSON_GetObjectItem(phaseObj, "phaseName")->valuestring);
-        program_phases[i].phaseStartTime = cJSON_GetObjectItem(phaseObj, "phaseStartTime")->valueint;
+        program_phases[i].name = strdup(cJSON_GetObjectItem(phaseObj, "name")->valuestring);
+        program_phases[i].startTime = cJSON_GetObjectItem(phaseObj, "startTime")->valueint;
 
         cJSON* comps = cJSON_GetObjectItem(phaseObj, "components");
         int num_comps = cJSON_GetArraySize(comps);
         program_phases[i].components = calloc(num_comps, sizeof(ComponentInput));
         program_phases[i].num_components = num_comps;
 
-        // Track the maximum (compStartTime + duration) so we know phase duration:
+        // Track the maximum (start + duration) so we know phase duration:
         uint32_t max_phase_dur = 0;
 
         for (int j = 0; j < num_comps; j++) {
@@ -285,41 +200,36 @@ static bool load_json_config(const char* path) {
             const char* name = cJSON_GetObjectItem(compObj, "compId")->valuestring;
             dst->compId = strdup(name);
             dst->pin    = map_name_to_pin(name);
-            dst->compStartTime = cJSON_GetObjectItem(compObj, "compStartTime")->valueint;
+            dst->start = cJSON_GetObjectItem(compObj, "start")->valueint;
             dst->duration      = cJSON_GetObjectItem(compObj, "duration")->valueint;
 
-            cJSON* stepObj = cJSON_GetObjectItem(compObj, "stepTime");
-            dst->stepTime = stepObj ? stepObj->valueint : 0;
 
-            cJSON* ifMotor = cJSON_GetObjectItem(compObj, "ifMotor");
-            dst->isMotor = cJSON_IsTrue(ifMotor);
+            // cJSON* ifMotor = cJSON_GetObjectItem(compObj, "ifMotor");
+            // dst->isMotor = cJSON_IsTrue(ifMotor);
 
             // New fields:
-            cJSON* styleObj = cJSON_GetObjectItem(compObj, "runningStyle");
-            if (styleObj && styleObj->valuestring) {
-                dst->runningStyle = strdup(styleObj->valuestring);
-            } else {
-                dst->runningStyle = strdup("toggle"); // default
-            }
+            // cJSON* styleObj = cJSON_GetObjectItem(compObj, "runningStyle");
+            // if (styleObj && styleObj->valuestring) {
+            //     dst->runningStyle = strdup(styleObj->valuestring);
+            // } else {
+            //     dst->runningStyle = strdup("toggle"); // default
+            // }
 
-            cJSON* pauseObj = cJSON_GetObjectItem(compObj, "pauseTime");
-            dst->pauseTime = pauseObj ? pauseObj->valueint : 0;
+            // cJSON* pauseObj = cJSON_GetObjectItem(compObj, "pauseTime");
+            // dst->pauseTime = pauseObj ? pauseObj->valueint : 0;
 
             // Compute this component’s end time relative to phase start:
-            uint32_t finish_time = dst->compStartTime + dst->duration;
+            uint32_t finish_time = dst->start + dst->duration;
             if (finish_time > max_phase_dur) {
                 max_phase_dur = finish_time;
             }
 
             ESP_LOGI("CONFIG",
-                     "[LOADED] %s (phase: %s)  start=%lu  dur=%lu  motor=%d  style=%s  pause=%lu",
+                     "[LOADED] %s (phase: %s)  start=%u  dur=%u",
                      name,
-                     program_phases[i].phaseName,
-                     dst->compStartTime,
-                     dst->duration,
-                     dst->isMotor,
-                     dst->runningStyle,
-                     dst->pauseTime);
+                     program_phases[i].name,
+                     (unsigned int)dst->start,
+                     (unsigned int)dst->duration);
         }
 
     }
@@ -358,24 +268,24 @@ void app_main(void) {
 
         // Compute how long to wait relative to previous phase start
         uint32_t this_delay = 0;
-        if (p->phaseStartTime > last_phase_start) {
-            this_delay = p->phaseStartTime - last_phase_start;
+        if (p->startTime > last_phase_start) {
+            this_delay = p->startTime - last_phase_start;
         }
 
         if (this_delay > 0) {
             vTaskDelay(pdMS_TO_TICKS(this_delay));
         }
         ESP_LOGI("APP", "Starting phase \"%s\" at t=%lu ms (delay=%lu)",
-                 p->phaseName, get_millis(), this_delay);
+                 p->name, get_millis(), this_delay);
 
         // Run the phase (spawn component tasks & wait until all finish)
         run_phase(p);
 
         ESP_LOGI("APP", "Completed phase \"%s\" at t=%lu ms",
-                 p->phaseName, get_millis());
+                 p->name, get_millis());
 
         // Update last_phase_start so the next phase’s delay is relative to this one
-        last_phase_start = p->phaseStartTime;
+        last_phase_start = p->startTime;
     }
 
     ESP_LOGI("APP", "All phases complete. Entering idle.");

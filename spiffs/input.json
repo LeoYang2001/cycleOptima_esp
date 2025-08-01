@@ -1,44 +1,17 @@
 [
   {
-    "phaseName": "Rinse & Soften",
-    "phaseStartTime": 0,
+    "id": "phase_a",
+    "name": "Example Phase",
+    "color": "06B6D4",
+    "startTime": 0,
     "components": [
       {
-        "compId": "Drain Pump",
-        "compStartTime": 0,
-        "duration": 4000,
-        "stepTime": 0,
-        "ifMotor": false
-      },
-      {
-        "compId": "Softener Valve",
-        "compStartTime": 1000,
-        "duration": 6000,
-        "stepTime": 0,
-        "ifMotor": false
-      }
-    ]
-  },
-  {
-    "phaseName": "Fill & Agitate",
-    "phaseStartTime": 8000,
-    "components": [
-      {
-        "compId": "Cold Valve",
-        "compStartTime": 0,
+        "id": "1752779020217",
+        "label": "Quick Drain",
+        "start": 0,
+        "compId": "Drain Valve",
         "duration": 5000,
-        "ifMotor": false,
-        "label": "Cold Valve"
-      },
-      {
-        "compId": "Motor",
-        "label": "Motor_SingleDir",
-        "compStartTime": 0,
-        "duration": 100000,
-        "stepTime": 1000,
-        "runningStyle": "singleDir",
-        "pauseTime": 1000,
-        "ifMotor": true
+        "motorConfig": null
       }
     ]
   }

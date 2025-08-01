@@ -129,7 +129,7 @@ router.get("/input", (req, res) => {
 router.put("/input", (req, res) => {
   const fs = require("fs");
   const inputPath = path.join(__dirname, "..", "spiffs", "input.json");
-  const newJson = req.body;
+  const newJson = req.body.phases;
   if (!newJson || typeof newJson !== "object") {
     return res.status(400).json({ error: "Invalid JSON body" });
   }
