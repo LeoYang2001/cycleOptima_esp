@@ -1,6 +1,6 @@
 // ------------------------- PIN MAPPINGS -------------------------
 #define RETRACTOR_PIN        7
-#define DETERGENT_VALVE_PIN  6
+#define DETERGENT_VALVE_PIN  8
 #define COLD_VALVE_PIN       9
 #define DRAIN_PUMP_PIN      19
 #define HOT_VALVE_PIN        5
