@@ -24,7 +24,7 @@ typedef struct {
 
 ComponentState component_states[NUM_COMPONENTS] = {
     {"Retractor", RETRACTOR_PIN, 0, false},
-    {"Drain Valve", DRAIN_VALVE_PIN, 0, false},
+    {"Detergent Valve", DETERGENT_VALVE_PIN, 0, false},
     {"Cold Valve", COLD_VALVE_PIN, 0, false},
     {"Drain Pump", DRAIN_PUMP_PIN, 0, false},
     {"Hot Valve", HOT_VALVE_PIN, 0, false},
@@ -141,7 +141,7 @@ static void run_phase(const Phase* phase) {
         xTaskCreate(
             component_task,
             task_name,
-            4096,        // stack size; adjust as needed
+            4096,        // stack size; 
             arg,
             tskIDLE_PRIORITY + 1,
             NULL
@@ -203,22 +203,6 @@ static bool load_json_config(const char* path) {
             dst->start = cJSON_GetObjectItem(compObj, "start")->valueint;
             dst->duration      = cJSON_GetObjectItem(compObj, "duration")->valueint;
 
-
-            // cJSON* ifMotor = cJSON_GetObjectItem(compObj, "ifMotor");
-            // dst->isMotor = cJSON_IsTrue(ifMotor);
-
-            // New fields:
-            // cJSON* styleObj = cJSON_GetObjectItem(compObj, "runningStyle");
-            // if (styleObj && styleObj->valuestring) {
-            //     dst->runningStyle = strdup(styleObj->valuestring);
-            // } else {
-            //     dst->runningStyle = strdup("toggle"); // default
-            // }
-
-            // cJSON* pauseObj = cJSON_GetObjectItem(compObj, "pauseTime");
-            // dst->pauseTime = pauseObj ? pauseObj->valueint : 0;
-
-            // Compute this component’s end time relative to phase start:
             uint32_t finish_time = dst->start + dst->duration;
             if (finish_time > max_phase_dur) {
                 max_phase_dur = finish_time;
